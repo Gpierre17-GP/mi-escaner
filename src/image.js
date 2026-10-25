@@ -16,7 +16,13 @@ export function detectEdges(data,w,h){
  const ratio=tail/(w*h),corners=p.map(q=>({x:q.x/(w-1),y:q.y/(h-1)}));if(ratio>.12&&ratio<.94&&edge<(w+h)*.35&&validCorners(corners)&&(!best||tail>best.size))best={corners,size:tail};}
  return best?.corners||null;
 }
-export async function decode(blob){const url=URL.createObjectURL(blob);try{const img=new Image();img.src=url;await img.decode();return img;}finally{URL.revokeObjectURL(url);}}
+// Use independent bytes and the load event. Do not revoke an image URL before
+// later canvas operations, and do not depend on Safari's decode() error text.
+export async function decode(blob){
+ if(!(blob instanceof Blob)||!blob.size)throw Error('La página no contiene una imagen válida.');
+ const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reader.onabort=()=>reject(Error('No se pudo leer la imagen guardada. Conserva su archivo original.'));reader.readAsDataURL(blob);});
+ return new Promise((resolve,reject)=>{const img=new Image();const timer=setTimeout(()=>{img.onload=img.onerror=null;img.src='';reject(Error('La imagen tardó demasiado en abrirse. Vuelve a abrir el documento.'));},20000);img.onload=()=>{clearTimeout(timer);img.onload=img.onerror=null;if(img.naturalWidth&&img.naturalHeight)resolve(img);else reject(Error('La imagen no tiene dimensiones válidas.'));};img.onerror=()=>{clearTimeout(timer);img.onload=img.onerror=null;reject(Error('No se pudo abrir la imagen. Prueba con su original en JPEG o PNG.'));};img.src=source;});
+}
 export function canvas(w,h){const c=document.createElement('canvas');c.width=Math.max(1,Math.round(w));c.height=Math.max(1,Math.round(h));return c;}
 export const toBlob=(c,quality=.9)=>new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error('No se pudo crear la imagen')),'image/jpeg',quality));
 export async function normalize(file){if(file.size>40*1024*1024)throw Error('Cada imagen debe pesar menos de 40 MB.');const img=await decode(file);if(!img.naturalWidth||!img.naturalHeight)throw Error('Imagen no compatible');const scale=Math.min(1,2800/Math.max(img.naturalWidth,img.naturalHeight)),c=canvas(img.naturalWidth*scale,img.naturalHeight*scale);c.getContext('2d').drawImage(img,0,0,c.width,c.height);const blob=await toBlob(c,.95);c.width=1;c.height=1;return blob;}
